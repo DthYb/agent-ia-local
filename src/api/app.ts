@@ -2,12 +2,15 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { logger } from "../config/logger";
 import { healthRouter } from "./health";
 import { chatRouter } from "./chat";
+import { documentsRouter } from "./documents";
 
 export function createApp() {
   const app = express();
   app.use(express.json());
   app.use(healthRouter);
   app.use(chatRouter);
+  app.use(chatRouter);
+  app.use(documentsRouter);
 
   // log de chaque requête
   app.use((req, res, next) => {

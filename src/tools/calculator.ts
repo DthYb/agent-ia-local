@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ToolDefinition } from "./types";
+import { defineTool } from "./types";
 
 // Grammaire : expr = terme (('+'|'-') terme)* ; terme = facteur (('*'|'/'|'%') facteur)*
 // facteur = nombre | '(' expr ')' | '-' facteur
@@ -60,12 +61,12 @@ export function evaluate(input: string): number {
   return result;
 }
 
-export const calculatorTool: ToolDefinition = {
+export const calculatorTool = defineTool({
   name: "calculator",
   description:
     "Évalue une expression arithmétique (+, -, *, /, %, parenthèses). À utiliser pour tout calcul numérique.",
   parameters: z.object({
     expression: z.string().describe("L'expression à calculer, par exemple (12 + 8) * 3"),
   }),
-  execute: ({ expression }) => String(evaluate(expression as string)),
-};
+  execute: ({ expression }) => String(evaluate(expression)),
+});
