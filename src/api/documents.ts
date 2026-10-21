@@ -2,12 +2,13 @@ import { Router } from "express";
 import { z } from "zod";
 import { getDb } from "../db/connection";
 import { IngestPathError, ingestPath } from "../rag/ingest";
+import { requireRole } from "./auth";
 
 export const documentsRouter = Router();
 
 const ingestBody = z.object({ path: z.string().max(300).default(".") });
 
-documentsRouter.post("/ingest", async (req, res, next) => {
+documentsRouter.post("/ingest", requireRole("admin"), async (req, res, next) => {
   const parsed = ingestBody.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: "Requête invalide", details: parsed.error.flatten().fieldErrors });

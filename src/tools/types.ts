@@ -1,9 +1,11 @@
 import type { z } from "zod";
+import type { Access } from "../auth/roles";
 
 export interface ToolDefinition<T extends z.ZodTypeAny = z.ZodTypeAny> {
   name: string;
   description: string;
-  parameters: T; // schéma zod : sert à valider ET à décrire les paramètres
+  access: Access; // "read" : tout le monde, "write" : admin uniquement
+  parameters: T;
   execute: (args: z.infer<T>) => Promise<string> | string;
 }
 

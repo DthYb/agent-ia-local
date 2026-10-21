@@ -1,4 +1,5 @@
 import type { Message } from "ollama";
+import type { Role } from "../auth/roles";
 import { config } from "../config";
 import { logger } from "../config/logger";
 import type { Db } from "../db/connection";
@@ -12,6 +13,8 @@ const SYSTEM_PROMPT =
   "Utilise les outils au lieu de deviner : calculator pour les calculs, " +
   "list_documents et read_document pour les documents du corpus, " +
   "sql_query pour interroger la table contacts. " +
+  "Tu n'as accès qu'aux outils qui te sont fournis : si une action demandée n'est pas possible " +
+  "avec eux, dis-le simplement. " +
   "Si un outil renvoie une erreur, explique-la honnêtement à l'utilisateur.";
 
 export interface ChatResult {
@@ -28,7 +31,8 @@ const registry = createRegistry();
 export async function runChat(
   db: Db,
   userMessage: string,
-  sessionId?: string
+  sessionId?: string,
+  role: Role = "reader"
 ): Promise<ChatResult> {
   let id = sessionId;
   if (id) {
@@ -56,8 +60,8 @@ export async function runChat(
   }
   messages.push(...history, { role: "user", content: userMessage });
 
-  // Boucle d'outils bornée
-  const tools = registry.toOllamaTools();
+  // Boucle d'outils bornée : le modèle ne voit que les outils autorisés pour son rôle
+  const tools = registry.toOllamaTools(role);
   const toolsUsed: string[] = [];
   let answer = "";
   let finished = false;
@@ -75,8 +79,8 @@ export async function runChat(
     messages.push(res.message);
     for (const call of toolCalls) {
       const name = call.function.name;
-      logger.info({ tool: name, args: call.function.arguments }, "appel d'outil");
-      const output = await registry.execute(name, call.function.arguments);
+      logger.info({ tool: name, role, args: call.function.arguments }, "appel d'outil");
+      const output = await registry.execute(name, call.function.arguments, role);
       toolsUsed.push(name);
       messages.push({ role: "tool", content: output, tool_name: name });
     }

@@ -14,6 +14,10 @@ const schema = z.object({
   RAG_TOP_K: z.coerce.number().int().positive().default(4),
   CHUNK_SIZE: z.coerce.number().int().positive().default(800),
   CHUNK_OVERLAP: z.coerce.number().int().nonnegative().default(100),
+  API_KEY_ADMIN: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.string().min(16).optional()
+  ),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -39,4 +43,5 @@ export const config = {
     chunkSize: env.CHUNK_SIZE,
     chunkOverlap: env.CHUNK_OVERLAP,
   },
+  auth: { adminKey: env.API_KEY_ADMIN },
 } as const;

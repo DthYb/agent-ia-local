@@ -5,6 +5,7 @@ import { listCorpusFiles, MAX_READ_CHARS, resolveInCorpus } from "./corpus";
 
 export const listDocumentsTool = defineTool({
   name: "list_documents",
+  access: "read",
   description: "Liste les documents disponibles dans le corpus documentaire.",
   parameters: z.object({}),
   execute: () => {
@@ -15,6 +16,7 @@ export const listDocumentsTool = defineTool({
 
 export const readDocumentTool = defineTool({
   name: "read_document",
+  access: "read",
   description:
     "Lit le contenu d'un document du corpus. Le chemin est relatif au corpus, tel que renvoyé par list_documents.",
   parameters: z.object({

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getDb } from "../db/connection";
 import { deleteSession } from "../db/sessions";
 import { runChat, SessionNotFoundError } from "../agent/orchestrator";
+import { requireRole } from "./auth";
 
 export const chatRouter = Router();
 
@@ -18,7 +19,7 @@ chatRouter.post("/chat", async (req, res, next) => {
     return;
   }
   try {
-    const result = await runChat(getDb(), parsed.data.message, parsed.data.sessionId);
+    const result = await runChat(getDb(), parsed.data.message, parsed.data.sessionId, req.role);
     res.json(result);
   } catch (err) {
     if (err instanceof SessionNotFoundError) {
@@ -29,8 +30,11 @@ chatRouter.post("/chat", async (req, res, next) => {
   }
 });
 
-chatRouter.delete("/sessions/:id", (req, res) => {
-  const deleted = deleteSession(getDb(), req.params.id);
+chatRouter.delete("/sessions/:id", requireRole("admin"), (req, res) => {
+  const raw = req.params.id;
+  const id = Array.isArray(raw) ? raw[0] : raw;
+
+  const deleted = deleteSession(getDb(), id);
   if (!deleted) {
     res.status(404).json({ error: "Session introuvable" });
     return;

@@ -63,6 +63,7 @@ export function evaluate(input: string): number {
 
 export const calculatorTool = defineTool({
   name: "calculator",
+  access: "read",
   description:
     "Évalue une expression arithmétique (+, -, *, /, %, parenthèses). À utiliser pour tout calcul numérique.",
   parameters: z.object({

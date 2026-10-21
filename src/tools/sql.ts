@@ -38,6 +38,7 @@ export function validateReadOnlySql(
 
 export const sqlQueryTool = defineTool({
   name: "sql_query",
+  access: "read",
   description:
     "Exécute une requête SQL SELECT en lecture seule. Table disponible : " +
     "contacts(id, name, email, company, city). Maximum 50 lignes renvoyées.",
