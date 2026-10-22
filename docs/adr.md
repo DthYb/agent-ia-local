@@ -56,3 +56,23 @@
 **Décision.** Seuls les messages utilisateur et assistant sont stockés. Les appels d'outils et leurs résultats vivent le temps de la requête.
 
 **Conséquences.** Implémentation simple, contexte court. Limite connue : le modèle ne revoit pas les résultats d'outils des tours précédents.
+
+## ADR-9 : Trois bases métier séparées
+
+**Contexte.** Les données métier (contacts, produits, commandes) étaient mêlées aux tables internes de l'agent.
+
+**Décision.** Trois fichiers SQLite (`crm`, `catalogue`, `ventes`) déclarés dans `src/db/sources.ts`, chacun avec son schéma, son allowlist de tables et une description vue par le modèle. `sql_query` prend un paramètre `database` (enum) : le modèle n'interroge que la base utile. `agent.db` reste interne.
+
+**Conséquences.** Isolation : une requête sur une base ne peut pas lire les autres ni les tables internes. Ajouter une base = une entrée dans `DATA_SOURCES`. Limite : pas de jointure entre bases (le modèle enchaîne plusieurs requêtes ; `ATTACH` reste interdit).
+
+## ADR-10 : Recherche web en dernier recours
+
+**Contexte.** Internet est lent, non fiable et sort du périmètre local : on ne veut l'utiliser que si l'information n'existe pas en local.
+
+**Décision.** Outil `web_search` (SearXNG, auto-hébergé, sans clé API), enregistré seulement si `SEARXNG_URL` est défini. Quatre garde-fous contre les appels inutiles :
+1. **Local d'abord** : si le RAG renvoie un passage de score ≥ `WEB_SEARCH_SKIP_SCORE`, l'outil n'est pas proposé au modèle pour cette question (et un appel forcé est refusé).
+2. **Prompt** : n'appeler un outil que si nécessaire ; web après corpus et bases.
+3. **Cache** : résultats stockés dans `web_cache` (TTL `WEB_CACHE_TTL_HOURS`), clé normalisée.
+4. **Budget et déduplication** : `WEB_SEARCH_MAX_CALLS` par question ; un appel d'outil identique (même nom, mêmes arguments) dans un tour réutilise le résultat précédent.
+
+**Conséquences.** Le web n'est sollicité que pour l'information absente ou externe. Le seuil RAG est à ajuster selon le modèle d'embeddings. Le critère 1 ne couvre que le corpus : pour les données des bases, on s'appuie sur le prompt et la description de l'outil.

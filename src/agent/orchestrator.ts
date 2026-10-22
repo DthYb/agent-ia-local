@@ -5,17 +5,43 @@ import { logger } from "../config/logger";
 import type { Db } from "../db/connection";
 import { addMessage, createSession, getMessages, sessionExists } from "../db/sessions";
 import { chat } from "../llm/client";
-import { retrieve } from "../rag/retriever";
+import { retrieve, type RetrievedChunk } from "../rag/retriever";
 import { createRegistry } from "../tools";
 
-const SYSTEM_PROMPT =
-  "Tu es un assistant utile et concis. Réponds en français sauf demande contraire. " +
-  "Utilise les outils au lieu de deviner : calculator pour les calculs, " +
-  "list_documents et read_document pour les documents du corpus, " +
-  "sql_query pour interroger la table contacts. " +
-  "Tu n'as accès qu'aux outils qui te sont fournis : si une action demandée n'est pas possible " +
-  "avec eux, dis-le simplement. " +
-  "Si un outil renvoie une erreur, explique-la honnêtement à l'utilisateur.";
+const WEB_TOOL = "web_search";
+
+function systemPrompt(webSearch: boolean): string {
+  return (
+    "Tu es un assistant utile et concis. Réponds en français sauf demande contraire. " +
+    "N'appelle un outil que s'il est nécessaire : si les extraits du corpus fournis ou la conversation " +
+    "suffisent, réponds directement. Sinon utilise les outils au lieu de deviner : calculator pour les calculs, " +
+    "list_documents et read_document pour les documents du corpus, " +
+    "sql_query pour les bases métier (crm : contacts, catalogue : produits, ventes : commandes) " +
+    "en interrogeant uniquement la base concernée. " +
+    (webSearch
+      ? "web_search en dernier recours seulement : quand l'information n'est ni dans les extraits, " +
+      "ni dans les documents, ni dans les bases, ou qu'elle est récente ou externe à l'entreprise. " +
+      "Cite alors les URL utilisées. "
+      : "") +
+    "Tu n'as accès qu'aux outils qui te sont fournis : si une action demandée n'est pas possible " +
+    "avec eux, dis-le simplement. " +
+    "Si un outil renvoie une erreur, explique-la honnêtement à l'utilisateur."
+  );
+}
+
+// Local d'abord : si le corpus contient déjà un passage très pertinent,
+// la recherche web n'est même pas proposée au modèle.
+export function shouldOfferWebSearch(
+  passages: RetrievedChunk[],
+  skipScore: number = config.webSearch.skipScore
+): boolean {
+  return !passages.some((p) => p.score >= skipScore);
+}
+
+// Clé de déduplication : même outil + mêmes arguments = même résultat dans un tour.
+export function toolCallKey(name: string, args: unknown): string {
+  return `${name}:${JSON.stringify(args)}`;
+}
 
 export interface ChatResult {
   sessionId: string;
@@ -49,7 +75,14 @@ export async function runChat(
   const passages = await retrieve(db, userMessage);
   const sources = [...new Set(passages.map((p) => p.path))];
 
-  const messages: Message[] = [{ role: "system", content: SYSTEM_PROMPT }];
+  // Boucle d'outils bornée : le modèle ne voit que les outils autorisés pour son rôle
+  const offerWeb = shouldOfferWebSearch(passages);
+  const tools = registry
+    .toOllamaTools(role)
+    .filter((t) => offerWeb || t.function.name !== WEB_TOOL);
+  const webAvailable = tools.some((t) => t.function.name === WEB_TOOL);
+
+  const messages: Message[] = [{ role: "system", content: systemPrompt(webAvailable) }];
   if (passages.length > 0) {
     messages.push({
       role: "system",
@@ -60,9 +93,9 @@ export async function runChat(
   }
   messages.push(...history, { role: "user", content: userMessage });
 
-  // Boucle d'outils bornée : le modèle ne voit que les outils autorisés pour son rôle
-  const tools = registry.toOllamaTools(role);
   const toolsUsed: string[] = [];
+  const toolResults = new Map<string, string>();
+  let webCalls = 0;
   let answer = "";
   let finished = false;
 
@@ -79,9 +112,23 @@ export async function runChat(
     messages.push(res.message);
     for (const call of toolCalls) {
       const name = call.function.name;
-      logger.info({ tool: name, role, args: call.function.arguments }, "appel d'outil");
-      const output = await registry.execute(name, call.function.arguments, role);
-      toolsUsed.push(name);
+      const args = call.function.arguments;
+      const key = toolCallKey(name, args);
+      let output = toolResults.get(key);
+
+      if (output !== undefined) {
+        logger.info({ tool: name, role, args }, "appel d'outil dédoublonné");
+      } else if (name === WEB_TOOL && !webAvailable) {
+        output = "Erreur : la recherche web n'est pas disponible pour cette question, utilise les sources locales.";
+      } else if (name === WEB_TOOL && webCalls >= config.webSearch.maxCalls) {
+        output = "Erreur : nombre maximal de recherches web atteint, réponds avec les informations déjà obtenues.";
+      } else {
+        if (name === WEB_TOOL) webCalls++;
+        logger.info({ tool: name, role, args }, "appel d'outil");
+        output = await registry.execute(name, args, role);
+        toolsUsed.push(name);
+        toolResults.set(key, output);
+      }
       messages.push({ role: "tool", content: output, tool_name: name });
     }
   }

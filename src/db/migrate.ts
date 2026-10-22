@@ -35,12 +35,10 @@ CREATE TABLE IF NOT EXISTS chunks (
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id);
 
-CREATE TABLE IF NOT EXISTS contacts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  email TEXT NOT NULL,
-  company TEXT,
-  city TEXT
+CREATE TABLE IF NOT EXISTS web_cache (
+  query TEXT PRIMARY KEY,
+  results TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `;
 
