@@ -8,8 +8,12 @@ Agent IA exposé en API REST : Node.js 20+, TypeScript, Ollama (chat + embedding
 Client HTTP → API REST (Express) → Orchestrateur agent
                                      ├─ RAG retriever ─→ SQLite (chunks + embeddings) ←─ Ollama (embeddings)
                                      ├─ Client LLM ────→ Ollama (chat)
-                                     └─ Registre d'outils → calculator · list_documents · read_document · sql_query
+                                     └─ Registre d'outils → calculator · list_documents · read_document
+                                                          ├─ sql_query ──→ crm.db · catalogue.db · ventes.db
+                                                          └─ web_search ─→ SearXNG (dernier recours, cache dans agent.db)
 ```
+
+Ordre de recherche : **corpus (RAG) → bases métier → internet**. Internet n'est sollicité que si l'information n'est pas disponible en local.
 
 | Dossier | Rôle |
 |---|---|
@@ -46,9 +50,23 @@ Les noms de modèles du `.env` doivent correspondre exactement à `ollama list`.
 
 ### 4. Base de données
 ```bash
-npm run db:init    # crée les tables
-npm run db:seed    # peuple la table de démo `contacts`
+npm run db:init    # crée agent.db + les 3 bases métier
+npm run db:seed    # peuple crm (contacts), catalogue (produits), ventes (commandes)
 ```
+
+| Base | Fichier | Tables |
+|---|---|---|
+| interne | `data/agent.db` | sessions, messages, documents, chunks, web_cache (jamais exposée à `sql_query`) |
+| `crm` | `data/crm.db` | contacts |
+| `catalogue` | `data/catalogue.db` | produits |
+| `ventes` | `data/ventes.db` | commandes |
+
+### 4 bis. Recherche internet (optionnel)
+L'outil `web_search` s'appuie sur [SearXNG](https://docs.searxng.org/), un métamoteur auto-hébergé sans clé API :
+```bash
+docker run -d -p 8080:8080 --name searxng searxng/searxng
+```
+Activer le format JSON dans son `settings.yml` (`search.formats: [html, json]`), puis renseigner `SEARXNG_URL=http://localhost:8080` dans le `.env`. Sans cette variable, l'outil n'est pas proposé au modèle.
 
 ### 5. Lancement
 ```bash
@@ -67,6 +85,12 @@ npm run dev
 | `MAX_TOOL_ITERATIONS` | nombre max de tours d'outils | 5 |
 | `RAG_TOP_K` | passages injectés dans le contexte | 4 |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | découpage des documents | 800 / 100 |
+| `CRM_DB_PATH` / `CATALOGUE_DB_PATH` / `VENTES_DB_PATH` | bases métier | ./data/crm.db, ./data/catalogue.db, ./data/ventes.db |
+| `SEARXNG_URL` | URL de SearXNG ; vide = recherche web désactivée | — |
+| `WEB_SEARCH_SKIP_SCORE` | score RAG à partir duquel le web n'est pas proposé | 0.6 |
+| `WEB_SEARCH_MAX_CALLS` | recherches web max par question | 2 |
+| `WEB_CACHE_TTL_HOURS` | durée de vie du cache des recherches web | 24 |
+| `WEB_SEARCH_TIMEOUT_MS` | timeout des appels à SearXNG | 10000 |
 
 ## API
 
@@ -93,7 +117,8 @@ $r | ConvertTo-Json -Depth 5
 
 - **Pas de `eval`** : le calcul passe par un parseur d'expressions dédié.
 - **Fichiers** : chemins résolus dans le corpus uniquement (protection `..` et liens symboliques), extensions md/txt/json/csv.
-- **SQL** : un seul `SELECT`, mots-clés d'écriture et commentaires interdits, allowlist de tables (`contacts`), connexion SQLite ouverte en lecture seule.
+- **SQL** : un seul `SELECT`, mots-clés d'écriture et commentaires interdits, allowlist de tables propre à chaque base, connexions SQLite ouvertes en lecture seule. La base interne n'est jamais interrogeable.
+- **Web** : résultats tronqués et signalés au modèle comme contenu externe non fiable (risque d'injection de prompt), timeout, nombre d'appels borné.
 - **Outils** : arguments validés par zod, outils inconnus jamais exécutés, boucle bornée.
 
 ## Tests

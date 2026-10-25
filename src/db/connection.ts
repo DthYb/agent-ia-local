@@ -21,14 +21,3 @@ export function getDb(): Db {
   if (!instance) instance = openDb();
   return instance;
 }
-
-let roInstance: Db | null = null;
-
-// Connexion distincte, ouverte en lecture seule : même si la validation du SQL
-// avait un trou, SQLite refuserait toute écriture.
-export function getReadonlyDb(): Db {
-  if (!roInstance) {
-    roInstance = new Database(config.db.path, { readonly: true, fileMustExist: true });
-  }
-  return roInstance;
-}
